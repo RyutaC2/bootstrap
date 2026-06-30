@@ -87,13 +87,19 @@ ensure_github_auth() {
 }
 
 configure_github_cli_browser() {
-  if ! command -v wslview >/dev/null 2>&1; then
-    echo "Warning: wslview was not found. GitHub CLI may not be able to open the Windows browser." >&2
+  if command -v wslview >/dev/null 2>&1; then
+    export GH_BROWSER="${GH_BROWSER:-wslview}"
+    gh config set browser wslview
     return 0
   fi
 
-  export GH_BROWSER="${GH_BROWSER:-wslview}"
-  gh config set browser wslview
+  if [ -x /mnt/c/Windows/explorer.exe ]; then
+    export GH_BROWSER="${GH_BROWSER:-/mnt/c/Windows/explorer.exe}"
+    gh config set browser /mnt/c/Windows/explorer.exe
+    return 0
+  fi
+
+  echo "Warning: No browser opener was found. GitHub CLI may not be able to open the Windows browser." >&2
 }
 
 install_chezmoi() {
@@ -154,13 +160,30 @@ find_ansible_playbook() {
   return 1
 }
 
+find_ansible_inventory() {
+  local source_dir="$1"
+  local candidate="$source_dir/ansible/inventory"
+
+  if [ -f "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
 run_ansible_if_present() {
   local source_dir="$1"
+  local inventory
   local playbook
 
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
-    ansible-playbook --ask-become-pass "$playbook"
+    if inventory="$(find_ansible_inventory "$source_dir")"; then
+      ansible-playbook -i "$inventory" --ask-become-pass "$playbook"
+    else
+      ansible-playbook -i localhost, --connection local --ask-become-pass "$playbook"
+    fi
     return 0
   fi
 
@@ -186,7 +209,7 @@ check_wsl_environment
 check_supported_os
 
 sudo apt-get update
-sudo apt-get install -y git curl gh ansible wslu
+sudo apt-get install -y git curl gh ansible
 
 echo "Base packages installed."
 install_chezmoi
