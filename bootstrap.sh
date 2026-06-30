@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CHEZMOI_BIN="chezmoi"
+DOTFILES_SOURCE_DIR=""
 
 confirm_continue() {
   local prompt="$1"
@@ -103,19 +104,69 @@ clone_dotfiles_repository() {
 
   mkdir -p "$(dirname "$destination")"
   gh repo clone "$repo" "$destination"
+  DOTFILES_SOURCE_DIR="$destination"
   echo "chezmoi source repository cloned to $destination."
-  echo "Next steps:"
-  echo "$CHEZMOI_BIN diff"
-  echo "$CHEZMOI_BIN apply"
+}
+
+find_ansible_playbook() {
+  local source_dir="$1"
+  local candidate
+
+  for candidate in \
+    "$source_dir/ansible/playbook.yml" \
+    "$source_dir/ansible/playbook.yaml" \
+    "$source_dir/ansible/site.yml" \
+    "$source_dir/ansible/site.yaml" \
+    "$source_dir/playbook.yml" \
+    "$source_dir/playbook.yaml" \
+    "$source_dir/site.yml" \
+    "$source_dir/site.yaml"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+run_ansible_if_present() {
+  local source_dir="$1"
+  local playbook
+
+  if playbook="$(find_ansible_playbook "$source_dir")"; then
+    echo "Running Ansible playbook: $playbook"
+    ansible-playbook "$playbook"
+    return 0
+  fi
+
+  echo "No Ansible playbook found. Skipping Ansible setup."
+}
+
+run_chezmoi_if_present() {
+  local source_dir="$1"
+
+  if [ ! -d "$source_dir" ]; then
+    echo "No chezmoi source directory found. Skipping chezmoi apply." >&2
+    return 0
+  fi
+
+  echo "Showing chezmoi diff from $source_dir."
+  "$CHEZMOI_BIN" --source "$source_dir" diff || true
+
+  confirm_continue "Apply chezmoi changes?"
+  "$CHEZMOI_BIN" --source "$source_dir" apply
 }
 
 check_wsl_environment
 check_supported_os
 
 sudo apt-get update
-sudo apt-get install -y git curl gh
+sudo apt-get install -y git curl gh ansible
 
 echo "Base packages installed."
 install_chezmoi
 ensure_github_auth
 clone_dotfiles_repository
+run_ansible_if_present "$DOTFILES_SOURCE_DIR"
+run_chezmoi_if_present "$DOTFILES_SOURCE_DIR"
