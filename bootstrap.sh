@@ -87,9 +87,9 @@ ensure_github_auth() {
 }
 
 configure_github_cli_browser() {
-  if command -v wslview >/dev/null 2>&1; then
-    export GH_BROWSER="${GH_BROWSER:-wslview}"
-    gh config set browser wslview
+  if command -v xdg-open >/dev/null 2>&1; then
+    export GH_BROWSER="${GH_BROWSER:-xdg-open}"
+    gh config set browser xdg-open
     return 0
   fi
 
@@ -209,7 +209,7 @@ check_wsl_environment
 check_supported_os
 
 sudo apt-get update
-sudo apt-get install -y git curl gh ansible
+sudo apt-get install -y git curl gh ansible xdg-utils
 
 echo "Base packages installed."
 install_chezmoi

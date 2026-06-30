@@ -42,7 +42,7 @@ sudo apt-get update && sudo apt-get install -y curl && DOTFILES_REPO=yourname/do
 
 1. WSL かどうかを確認
 2. Debian または apt 系 Linux かどうかを確認
-3. `git`, `curl`, `gh`, `ansible` を apt で install
+3. `git`, `curl`, `gh`, `ansible`, `xdg-utils` を apt で install
 4. `chezmoi` が未 install の場合、`~/.local/bin` に install
 5. GitHub CLI で GitHub に login
 6. dotfiles repository を chezmoi の source directory に clone
@@ -50,7 +50,7 @@ sudo apt-get update && sudo apt-get install -y curl && DOTFILES_REPO=yourname/do
 8. `chezmoi diff` を表示
 9. 確認後に `chezmoi apply` を実行
 
-GitHub CLI の認証では、WSL から Windows 側の既定ブラウザを開くために `wslview` が見つかればそれを使います。`wslview` が無い場合は `/mnt/c/Windows/explorer.exe` を使います。script 内では `GH_BROWSER` を設定し、あわせて `gh config set browser` で GitHub CLI の browser 設定を永続化します。
+GitHub CLI の認証では、WSL からブラウザを開くために `xdg-utils` を install し、`xdg-open` を使います。`xdg-open` が無い場合は `/mnt/c/Windows/explorer.exe` を使います。script 内では `GH_BROWSER` を設定し、あわせて `gh config set browser` で GitHub CLI の browser 設定を永続化します。
 
 ブラウザが開かない場合は、GitHub CLI が表示する URL と code を使って認証してください。
 
