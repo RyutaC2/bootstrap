@@ -3,11 +3,25 @@ set -euo pipefail
 CHEZMOI_BIN="chezmoi"
 DOTFILES_SOURCE_DIR=""
 
+prompt_read() {
+  local variable_name="$1"
+  local prompt="$2"
+  local value
+
+  if [ -r /dev/tty ]; then
+    read -r -p "$prompt" value </dev/tty || return 1
+  else
+    read -r -p "$prompt" value || return 1
+  fi
+
+  printf -v "$variable_name" '%s' "$value"
+}
+
 confirm_continue() {
   local prompt="$1"
   local answer
 
-  read -r -p "${prompt} [y/N] " answer
+  prompt_read answer "${prompt} [y/N] "
   case "$answer" in
     y | Y | yes | YES | Yes)
       return 0
@@ -91,10 +105,10 @@ clone_dotfiles_repository() {
   local requested_destination
 
   while [ -z "$repo" ]; do
-    read -r -p "chezmoi source repository to clone (owner/repo): " repo
+    prompt_read repo "chezmoi source repository to clone (owner/repo): "
   done
 
-  read -r -p "chezmoi source directory [${destination}]: " requested_destination
+  prompt_read requested_destination "chezmoi source directory [${destination}]: "
   destination="${requested_destination:-$destination}"
 
   if [ -e "$destination" ]; then
