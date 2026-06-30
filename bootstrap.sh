@@ -150,7 +150,7 @@ run_ansible_if_present() {
 
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
-    ansible-playbook "$playbook"
+    ansible-playbook --ask-become-pass "$playbook"
     return 0
   fi
 

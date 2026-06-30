@@ -99,6 +99,8 @@ site.yaml
 
 たとえば `zsh`, `starship`, `tmux`, `neovim` など、dotfiles を適用する前に必要な package は Ansible 側で install できます。
 
+`become: true` を使う task があるため、実行時には sudo password を聞かれることがあります。
+
 ## chezmoi apply
 
 Ansible の実行後、script は clone した source directory を指定して `chezmoi diff` を表示します。
