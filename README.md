@@ -45,14 +45,17 @@ sudo apt-get update && sudo apt-get install -y curl && DOTFILES_REPO=yourname/do
 3. `git`, `curl`, `gh`, `ansible`, `xdg-utils` を apt で install
 4. `chezmoi` が未 install の場合、`~/.local/bin` に install
 5. GitHub CLI で GitHub に login
-6. dotfiles repository を chezmoi の source directory に clone
-7. repository 内に Ansible playbook があれば実行
-8. `chezmoi diff` を表示
-9. 確認後に `chezmoi apply` を実行
+6. GitHub の SSH host key を `~/.ssh/known_hosts` に登録
+7. dotfiles repository を chezmoi の source directory に clone
+8. repository 内に Ansible playbook があれば実行
+9. `chezmoi diff` を表示
+10. 確認後に `chezmoi apply` を実行
 
 GitHub CLI の認証では、WSL からブラウザを開くために `xdg-utils` を install し、`xdg-open` を使います。`xdg-open` が無い場合は `/mnt/c/Windows/explorer.exe` を使います。script 内では `GH_BROWSER` を設定し、あわせて `gh config set browser` で GitHub CLI の browser 設定を永続化します。
 
 ブラウザが開かない場合は、GitHub CLI が表示する URL と code を使って認証してください。
+
+認証後、script は GitHub 公式ドキュメントに掲載されている SSH host key を `~/.ssh/known_hosts` に登録します。これにより、初回 clone 時の `Are you sure you want to continue connecting (yes/no/[fingerprint])?` という確認で止まらないようにしています。
 
 ## Repository と clone 先
 
