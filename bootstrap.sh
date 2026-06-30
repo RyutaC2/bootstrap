@@ -86,6 +86,16 @@ ensure_github_auth() {
   gh auth setup-git --hostname github.com
 }
 
+configure_github_cli_browser() {
+  if ! command -v wslview >/dev/null 2>&1; then
+    echo "Warning: wslview was not found. GitHub CLI may not be able to open the Windows browser." >&2
+    return 0
+  fi
+
+  export GH_BROWSER="${GH_BROWSER:-wslview}"
+  gh config set browser wslview
+}
+
 install_chezmoi() {
   if command -v chezmoi >/dev/null 2>&1; then
     CHEZMOI_BIN="$(command -v chezmoi)"
@@ -176,10 +186,11 @@ check_wsl_environment
 check_supported_os
 
 sudo apt-get update
-sudo apt-get install -y git curl gh ansible
+sudo apt-get install -y git curl gh ansible wslu
 
 echo "Base packages installed."
 install_chezmoi
+configure_github_cli_browser
 ensure_github_auth
 clone_dotfiles_repository
 run_ansible_if_present "$DOTFILES_SOURCE_DIR"
