@@ -225,6 +225,23 @@ run_chezmoi_if_present() {
   "$CHEZMOI_BIN" --source "$source_dir" apply
 }
 
+reload_or_notice_tmux() {
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "tmux is not installed. If Ansible failed, check the setup log." >&2
+    return 0
+  fi
+
+  if tmux has-session >/dev/null 2>&1; then
+    tmux source-file "$HOME/.tmux.conf"
+    echo "Reloaded tmux config for the running tmux server."
+    return 0
+  fi
+
+  echo "tmux is not running."
+  echo "Your tmux config has been installed and will be loaded automatically when you start tmux:"
+  echo "  tmux"
+}
+
 check_wsl_environment
 check_supported_os
 
@@ -239,3 +256,4 @@ ensure_github_known_host
 clone_dotfiles_repository
 run_ansible_if_present "$DOTFILES_SOURCE_DIR"
 run_chezmoi_if_present "$DOTFILES_SOURCE_DIR"
+reload_or_notice_tmux
