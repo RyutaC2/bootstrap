@@ -231,12 +231,11 @@ run_ansible_if_present() {
 
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
-    echo "Refreshing sudo credentials before running Ansible."
-    sudo -v
+    echo "Ansible will ask for your sudo password if privilege escalation is required."
     if inventory="$(find_ansible_inventory "$source_dir")"; then
-      ansible-playbook -i "$inventory" "$playbook"
+      ansible-playbook --ask-become-pass -i "$inventory" "$playbook"
     else
-      ansible-playbook -i localhost, --connection local "$playbook"
+      ansible-playbook --ask-become-pass -i localhost, --connection local "$playbook"
     fi
     return 0
   fi

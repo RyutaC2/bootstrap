@@ -57,7 +57,7 @@ sudo apt-get update && sudo apt-get install -y curl && BOOTSTRAP_YES=1 DOTFILES_
 9. `chezmoi diff` を表示
 10. 確認後に `chezmoi apply` を実行
 
-script 本体の序盤で `sudo -v` を実行し、sudo password の入力を基本的に1回へ寄せます。実行中は sudo timestamp が切れないように keep-alive し、Ansible 実行直前にも `sudo -v` で認証状態を更新します。SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準挙動に任せ、script から passphrase を自動投入しません。
+script 本体の序盤で `sudo -v` を実行し、apt に必要な sudo credential を用意します。実行中は sudo timestamp が切れないように keep-alive します。Ansible playbook は `--ask-become-pass` 付きで実行し、`become: true` の task に必要な sudo password は Ansible に直接入力します。SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準挙動に任せ、script から passphrase を自動投入しません。
 
 GitHub CLI の認証では、WSL からブラウザを開くために `xdg-utils` を install し、`xdg-open` を使います。`xdg-open` が無い場合は `/mnt/c/Windows/explorer.exe` を使います。script 内では `GH_BROWSER` を設定し、あわせて `gh config set browser` で GitHub CLI の browser 設定を永続化します。
 
@@ -118,7 +118,7 @@ site.yaml
 
 たとえば `zsh`, `starship`, `tmux`, `neovim` など、dotfiles を適用する前に必要な package は Ansible 側で install できます。
 
-`become: true` を使う task は、Ansible 実行直前に更新した sudo timestamp を利用します。そのため、GitHub 認証に時間がかかっても、通常は Ansible 実行中に sudo password 入力待ちで失敗しません。
+`become: true` を使う task に対応するため、script は `ansible-playbook --ask-become-pass` を使います。これにより、sudo timestamp の再利用可否に依存せず、Ansible が必要な sudo password を取得できます。
 
 ## chezmoi apply
 
