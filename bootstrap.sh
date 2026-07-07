@@ -2,6 +2,23 @@
 set -euo pipefail
 CHEZMOI_BIN="chezmoi"
 DOTFILES_SOURCE_DIR=""
+SUDO_KEEPALIVE_PID=""
+CLONE_DESTINATION_CREATED=""
+CLONE_COMPLETED=0
+
+cleanup() {
+  if [ -n "${SUDO_KEEPALIVE_PID:-}" ]; then
+    kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true
+    wait "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+  fi
+
+  if [ -n "${CLONE_DESTINATION_CREATED:-}" ] && [ "${CLONE_COMPLETED:-0}" != "1" ] && [ -e "$CLONE_DESTINATION_CREATED" ]; then
+    echo "Removing incomplete clone: $CLONE_DESTINATION_CREATED" >&2
+    rm -rf -- "$CLONE_DESTINATION_CREATED"
+  fi
+}
+
+trap cleanup EXIT
 
 prompt_read() {
   local variable_name="$1"
@@ -31,6 +48,17 @@ confirm_continue() {
       exit 1
       ;;
   esac
+}
+
+initialize_sudo() {
+  echo "Preparing sudo credentials. You may be asked for your password once."
+  sudo -v
+
+  while true; do
+    sleep 60
+    sudo -n true 2>/dev/null || exit
+  done &
+  SUDO_KEEPALIVE_PID="$!"
 }
 
 is_wsl() {
@@ -138,14 +166,10 @@ install_chezmoi() {
 clone_dotfiles_repository() {
   local repo="${DOTFILES_REPO:-}"
   local destination="${DOTFILES_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi}"
-  local requested_destination
 
   while [ -z "$repo" ]; do
     prompt_read repo "chezmoi source repository to clone (owner/repo): "
   done
-
-  prompt_read requested_destination "chezmoi source directory [${destination}]: "
-  destination="${requested_destination:-$destination}"
 
   if [ -e "$destination" ]; then
     echo "Error: chezmoi source directory already exists: $destination" >&2
@@ -153,7 +177,15 @@ clone_dotfiles_repository() {
   fi
 
   mkdir -p "$(dirname "$destination")"
-  gh repo clone "$repo" "$destination"
+  CLONE_DESTINATION_CREATED="$destination"
+  CLONE_COMPLETED=0
+
+  if ! gh repo clone "$repo" "$destination"; then
+    echo "Error: Failed to clone chezmoi source repository." >&2
+    exit 1
+  fi
+
+  CLONE_COMPLETED=1
   DOTFILES_SOURCE_DIR="$destination"
   echo "chezmoi source repository cloned to $destination."
 }
@@ -200,9 +232,9 @@ run_ansible_if_present() {
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
     if inventory="$(find_ansible_inventory "$source_dir")"; then
-      ansible-playbook -i "$inventory" --ask-become-pass "$playbook"
+      ansible-playbook -i "$inventory" "$playbook"
     else
-      ansible-playbook -i localhost, --connection local --ask-become-pass "$playbook"
+      ansible-playbook -i localhost, --connection local "$playbook"
     fi
     return 0
   fi
@@ -221,7 +253,12 @@ run_chezmoi_if_present() {
   echo "Showing chezmoi diff from $source_dir."
   "$CHEZMOI_BIN" --source "$source_dir" diff || true
 
-  confirm_continue "Apply chezmoi changes?"
+  if [ "${BOOTSTRAP_YES:-}" = "1" ]; then
+    echo "Apply chezmoi changes? [y/N] y (BOOTSTRAP_YES=1)"
+  else
+    confirm_continue "Apply chezmoi changes?"
+  fi
+
   "$CHEZMOI_BIN" --source "$source_dir" apply
 }
 
@@ -237,13 +274,13 @@ reload_or_notice_tmux() {
     return 0
   fi
 
-  echo "tmux is not running."
-  echo "Your tmux config has been installed and will be loaded automatically when you start tmux:"
-  echo "  tmux"
+  echo "No running tmux server found; skipping tmux reload."
+  echo "Your tmux config will be loaded automatically the next time tmux starts."
 }
 
 check_wsl_environment
 check_supported_os
+initialize_sudo
 
 sudo apt-get update
 sudo apt-get install -y git curl gh ansible xdg-utils

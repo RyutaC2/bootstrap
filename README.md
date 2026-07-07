@@ -38,6 +38,12 @@ dotfiles repository を事前指定する場合:
 sudo apt-get update && sudo apt-get install -y curl && DOTFILES_REPO=yourname/dotfiles bash -c "$(curl -fsSL https://raw.githubusercontent.com/yourname/bootstrap/main/bootstrap.sh)"
 ```
 
+`chezmoi apply` の確認も省略したい場合は、`BOOTSTRAP_YES=1` を指定します。
+
+```bash
+sudo apt-get update && sudo apt-get install -y curl && BOOTSTRAP_YES=1 DOTFILES_REPO=yourname/dotfiles bash -c "$(curl -fsSL https://raw.githubusercontent.com/yourname/bootstrap/main/bootstrap.sh)"
+```
+
 実行すると、以下を順に行います。
 
 1. WSL かどうかを確認
@@ -50,6 +56,8 @@ sudo apt-get update && sudo apt-get install -y curl && DOTFILES_REPO=yourname/do
 8. repository 内に Ansible playbook があれば実行
 9. `chezmoi diff` を表示
 10. 確認後に `chezmoi apply` を実行
+
+script 本体の序盤で `sudo -v` を実行し、sudo password の入力を基本的に1回へ寄せます。実行中は sudo timestamp が切れないように keep-alive します。SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準挙動に任せ、script から passphrase を自動投入しません。
 
 GitHub CLI の認証では、WSL からブラウザを開くために `xdg-utils` を install し、`xdg-open` を使います。`xdg-open` が無い場合は `/mnt/c/Windows/explorer.exe` を使います。script 内では `GH_BROWSER` を設定し、あわせて `gh config set browser` で GitHub CLI の browser 設定を永続化します。
 
@@ -65,7 +73,7 @@ dotfiles repository は `owner/repo` 形式で入力します。
 chezmoi source repository to clone (owner/repo): yourname/dotfiles
 ```
 
-clone 先の default は chezmoi の標準的な source directory です。
+clone 先の default は chezmoi の標準的な source directory です。script は clone 先を対話確認せず、この default をそのまま使います。
 
 ```bash
 ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi
@@ -83,11 +91,13 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi
 DOTFILES_REPO=yourname/dotfiles ./bootstrap.sh
 ```
 
-clone 先を変えたい場合は、`DOTFILES_DIR` を指定します。
+clone 先を変えたい場合だけ、`DOTFILES_DIR` を指定します。
 
 ```bash
 DOTFILES_REPO=yourname/dotfiles DOTFILES_DIR="$HOME/src/dotfiles" ./bootstrap.sh
 ```
+
+clone 開始後に失敗した場合は、今回作成した clone 先だけを削除して終了します。既存 directory がある場合は clone を開始せずに停止するため、既存 file や既存 SSH key は削除しません。
 
 ## Ansible playbook の自動実行
 
@@ -108,7 +118,7 @@ site.yaml
 
 たとえば `zsh`, `starship`, `tmux`, `neovim` など、dotfiles を適用する前に必要な package は Ansible 側で install できます。
 
-`become: true` を使う task があるため、実行時には sudo password を聞かれることがあります。
+`become: true` を使う task は、script 序盤の `sudo -v` で作成した sudo timestamp を利用します。そのため、通常は Ansible 実行時に追加で sudo password を聞かれません。
 
 ## chezmoi apply
 
@@ -118,4 +128,4 @@ Ansible の実行後、script は clone した source directory を指定して 
 chezmoi --source ~/.local/share/chezmoi diff
 ```
 
-その後、`Apply chezmoi changes?` と確認し、`y` を入力した場合だけ `chezmoi apply` を実行します。
+その後、`Apply chezmoi changes?` と確認し、`y` を入力した場合だけ `chezmoi apply` を実行します。`BOOTSTRAP_YES=1` を指定した場合は、この確認を省略して `chezmoi apply` を実行します。
