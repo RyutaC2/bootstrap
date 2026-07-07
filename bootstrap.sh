@@ -231,6 +231,8 @@ run_ansible_if_present() {
 
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
+    echo "Refreshing sudo credentials before running Ansible."
+    sudo -v
     if inventory="$(find_ansible_inventory "$source_dir")"; then
       ansible-playbook -i "$inventory" "$playbook"
     else
