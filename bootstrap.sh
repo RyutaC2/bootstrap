@@ -1,10 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+readonly GITHUB_HOST="github.com"
+readonly DEFAULT_CHEZMOI_INSTALL_DIR="$HOME/.local/bin"
+readonly DEFAULT_DOTFILES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi"
+readonly BASE_PACKAGES=(git curl gh ansible xdg-utils)
+readonly ANSIBLE_PLAYBOOK_CANDIDATES=(
+  ansible/playbook.yml
+  ansible/playbook.yaml
+  ansible/site.yml
+  ansible/site.yaml
+  playbook.yml
+  playbook.yaml
+  site.yml
+  site.yaml
+)
+
 CHEZMOI_BIN="chezmoi"
 DOTFILES_SOURCE_DIR=""
 SUDO_KEEPALIVE_PID=""
 CLONE_DESTINATION_CREATED=""
 CLONE_COMPLETED=0
+
+warn() {
+  echo "Warning: $*" >&2
+}
+
+error() {
+  echo "Error: $*" >&2
+}
+
+abort() {
+  echo "Aborted."
+  exit 1
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
 
 cleanup() {
   if [ -n "${SUDO_KEEPALIVE_PID:-}" ]; then
@@ -17,8 +50,6 @@ cleanup() {
     rm -rf -- "$CLONE_DESTINATION_CREATED"
   fi
 }
-
-trap cleanup EXIT
 
 prompt_read() {
   local variable_name="$1"
@@ -44,8 +75,7 @@ confirm_continue() {
       return 0
       ;;
     *)
-      echo "Aborted."
-      exit 1
+      abort
       ;;
   esac
 }
@@ -70,14 +100,14 @@ check_wsl_environment() {
     return 0
   fi
 
-  echo "Warning: This script is intended for WSL." >&2
-  echo "Running it on native Linux is not guaranteed to work." >&2
+  warn "This script is intended for WSL."
+  warn "Running it on native Linux is not guaranteed to work."
   confirm_continue "Continue anyway?"
 }
 
 check_supported_os() {
   if [ ! -r /etc/os-release ]; then
-    echo "Error: Cannot determine the OS because /etc/os-release is not readable." >&2
+    error "Cannot determine the OS because /etc/os-release is not readable."
     exit 1
   fi
 
@@ -87,31 +117,35 @@ check_supported_os() {
     return 0
   fi
 
-  if command -v apt-get >/dev/null 2>&1; then
-    echo "Warning: This script is intended for Debian." >&2
-    echo "Detected OS: ${PRETTY_NAME:-unknown}" >&2
-    echo "Continuing as an apt-based environment, but full compatibility is not guaranteed." >&2
+  if command_exists apt-get; then
+    warn "This script is intended for Debian."
+    warn "Detected OS: ${PRETTY_NAME:-unknown}"
+    warn "Continuing as an apt-based environment, but full compatibility is not guaranteed."
     confirm_continue "Continue anyway?"
     return 0
   fi
 
-  echo "Error: This script is intended for Debian or other apt-based Linux systems." >&2
-  echo "Detected OS: ${PRETTY_NAME:-unknown}" >&2
+  error "This script is intended for Debian or other apt-based Linux systems."
+  error "Detected OS: ${PRETTY_NAME:-unknown}"
   exit 1
 }
 
+configure_github_git_protocol() {
+  gh config set git_protocol ssh --host "$GITHUB_HOST"
+  gh auth setup-git --hostname "$GITHUB_HOST"
+}
+
 ensure_github_auth() {
-  if gh auth status --hostname github.com >/dev/null 2>&1; then
-    gh config set git_protocol ssh --host github.com
-    gh auth setup-git --hostname github.com
+  if gh auth status --hostname "$GITHUB_HOST" >/dev/null 2>&1; then
+    configure_github_git_protocol
     return 0
   fi
 
   echo "GitHub CLI authentication is required to clone your private repository."
   echo "A browser should open automatically for GitHub authentication."
   echo "If it does not open, follow the URL printed by GitHub CLI."
-  gh auth login --hostname github.com --web --git-protocol ssh
-  gh auth setup-git --hostname github.com
+  gh auth login --hostname "$GITHUB_HOST" --web --git-protocol ssh
+  configure_github_git_protocol
 }
 
 ensure_github_known_host() {
@@ -123,7 +157,7 @@ ensure_github_known_host() {
   touch "$known_hosts"
   chmod 600 "$known_hosts"
 
-  if ssh-keygen -F github.com -f "$known_hosts" >/dev/null 2>&1; then
+  if ssh-keygen -F "$GITHUB_HOST" -f "$known_hosts" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -135,7 +169,7 @@ EOF
 }
 
 configure_github_cli_browser() {
-  if command -v xdg-open >/dev/null 2>&1; then
+  if command_exists xdg-open; then
     export GH_BROWSER="${GH_BROWSER:-xdg-open}"
     gh config set browser xdg-open
     return 0
@@ -147,32 +181,40 @@ configure_github_cli_browser() {
     return 0
   fi
 
-  echo "Warning: No browser opener was found. GitHub CLI may not be able to open the Windows browser." >&2
+  warn "No browser opener was found. GitHub CLI may not be able to open the Windows browser."
 }
 
 install_chezmoi() {
-  if command -v chezmoi >/dev/null 2>&1; then
+  if command_exists chezmoi; then
     CHEZMOI_BIN="$(command -v chezmoi)"
     return 0
   fi
 
-  echo "Installing chezmoi to $HOME/.local/bin."
-  mkdir -p "$HOME/.local/bin"
-  sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
-  export PATH="$HOME/.local/bin:$PATH"
-  CHEZMOI_BIN="$HOME/.local/bin/chezmoi"
+  echo "Installing chezmoi to $DEFAULT_CHEZMOI_INSTALL_DIR."
+  mkdir -p "$DEFAULT_CHEZMOI_INSTALL_DIR"
+  sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$DEFAULT_CHEZMOI_INSTALL_DIR"
+  export PATH="$DEFAULT_CHEZMOI_INSTALL_DIR:$PATH"
+  CHEZMOI_BIN="$DEFAULT_CHEZMOI_INSTALL_DIR/chezmoi"
 }
 
-clone_dotfiles_repository() {
+resolve_dotfiles_repo() {
   local repo="${DOTFILES_REPO:-}"
-  local destination="${DOTFILES_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi}"
 
   while [ -z "$repo" ]; do
     prompt_read repo "chezmoi source repository to clone (owner/repo): "
   done
 
+  printf '%s\n' "$repo"
+}
+
+clone_dotfiles_repository() {
+  local repo
+  local destination="${DOTFILES_DIR:-$DEFAULT_DOTFILES_DIR}"
+
+  repo="$(resolve_dotfiles_repo)"
+
   if [ -e "$destination" ]; then
-    echo "Error: chezmoi source directory already exists: $destination" >&2
+    error "chezmoi source directory already exists: $destination"
     exit 1
   fi
 
@@ -181,7 +223,7 @@ clone_dotfiles_repository() {
   CLONE_COMPLETED=0
 
   if ! gh repo clone "$repo" "$destination"; then
-    echo "Error: Failed to clone chezmoi source repository." >&2
+    error "Failed to clone chezmoi source repository."
     exit 1
   fi
 
@@ -194,17 +236,9 @@ find_ansible_playbook() {
   local source_dir="$1"
   local candidate
 
-  for candidate in \
-    "$source_dir/ansible/playbook.yml" \
-    "$source_dir/ansible/playbook.yaml" \
-    "$source_dir/ansible/site.yml" \
-    "$source_dir/ansible/site.yaml" \
-    "$source_dir/playbook.yml" \
-    "$source_dir/playbook.yaml" \
-    "$source_dir/site.yml" \
-    "$source_dir/site.yaml"; do
-    if [ -f "$candidate" ]; then
-      printf '%s\n' "$candidate"
+  for candidate in "${ANSIBLE_PLAYBOOK_CANDIDATES[@]}"; do
+    if [ -f "$source_dir/$candidate" ]; then
+      printf '%s\n' "$source_dir/$candidate"
       return 0
     fi
   done
@@ -264,8 +298,8 @@ run_chezmoi_if_present() {
 }
 
 reload_or_notice_tmux() {
-  if ! command -v tmux >/dev/null 2>&1; then
-    echo "tmux is not installed. If Ansible failed, check the setup log." >&2
+  if ! command_exists tmux; then
+    warn "tmux is not installed. If Ansible failed, check the setup log."
     return 0
   fi
 
@@ -279,19 +313,29 @@ reload_or_notice_tmux() {
   echo "Your tmux config will be loaded automatically the next time tmux starts."
 }
 
-check_wsl_environment
-check_supported_os
-initialize_sudo
+install_base_packages() {
+  sudo apt-get update
+  sudo apt-get install -y "${BASE_PACKAGES[@]}"
+  echo "Base packages installed."
+}
 
-sudo apt-get update
-sudo apt-get install -y git curl gh ansible xdg-utils
+main() {
+  trap cleanup EXIT
 
-echo "Base packages installed."
-install_chezmoi
-configure_github_cli_browser
-ensure_github_auth
-ensure_github_known_host
-clone_dotfiles_repository
-run_ansible_if_present "$DOTFILES_SOURCE_DIR"
-run_chezmoi_if_present "$DOTFILES_SOURCE_DIR"
-reload_or_notice_tmux
+  check_wsl_environment
+  check_supported_os
+  initialize_sudo
+  install_base_packages
+  install_chezmoi
+  configure_github_cli_browser
+  ensure_github_auth
+  ensure_github_known_host
+  clone_dotfiles_repository
+  run_ansible_if_present "$DOTFILES_SOURCE_DIR"
+  run_chezmoi_if_present "$DOTFILES_SOURCE_DIR"
+  reload_or_notice_tmux
+}
+
+if (( ${#BASH_SOURCE[@]} == 0 )) || [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
