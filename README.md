@@ -54,8 +54,7 @@ sudo apt-get update && sudo apt-get install -y curl && BOOTSTRAP_YES=1 DOTFILES_
 6. GitHub の SSH host key を `~/.ssh/known_hosts` に登録
 7. dotfiles repository を chezmoi の source directory に clone
 8. repository 内に Ansible playbook があれば実行
-9. `chezmoi diff` を表示
-10. 確認後に `chezmoi apply` を実行
+9. 確認後に `chezmoi apply` を実行
 
 script 本体の序盤で `sudo -v` を実行し、apt に必要な sudo credential を用意します。実行中は sudo timestamp が切れないように keep-alive します。Ansible playbook は `--ask-become-pass` 付きで実行し、`become: true` の task に必要な sudo password は Ansible に直接入力します。SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準挙動に任せ、script から passphrase を自動投入しません。
 
@@ -122,10 +121,4 @@ site.yaml
 
 ## chezmoi apply
 
-Ansible の実行後、script は clone した source directory を指定して `chezmoi diff` を表示します。
-
-```bash
-chezmoi --source ~/.local/share/chezmoi diff
-```
-
-その後、`Apply chezmoi changes?` と確認し、`y` を入力した場合だけ `chezmoi apply` を実行します。`BOOTSTRAP_YES=1` を指定した場合は、この確認を省略して `chezmoi apply` を実行します。
+Ansible の実行後、script は `Apply chezmoi changes?` と確認し、`y` を入力した場合だけ `chezmoi apply` を実行します。`BOOTSTRAP_YES=1` を指定した場合は、この確認を省略して `chezmoi apply` を実行します。

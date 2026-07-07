@@ -285,9 +285,6 @@ run_chezmoi_if_present() {
     return 0
   fi
 
-  echo "Showing chezmoi diff from $source_dir."
-  "$CHEZMOI_BIN" --source "$source_dir" diff || true
-
   if [ "${BOOTSTRAP_YES:-}" = "1" ]; then
     echo "Apply chezmoi changes? [y/N] y (BOOTSTRAP_YES=1)"
   else
