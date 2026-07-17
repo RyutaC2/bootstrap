@@ -4,7 +4,11 @@ set -euo pipefail
 readonly GITHUB_HOST="github.com"
 readonly DEFAULT_CHEZMOI_INSTALL_DIR="$HOME/.local/bin"
 readonly DEFAULT_DOTFILES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi"
+readonly DEFAULT_WINDOWS_BROWSER="/mnt/c/Windows/explorer.exe"
 readonly BASE_PACKAGES=(git curl gh ansible xdg-utils)
+readonly UBUNTU_REPOSITORY_PACKAGES=(software-properties-common)
+readonly SUPPORTED_DEBIAN_VERSIONS=(12 13)
+readonly SUPPORTED_UBUNTU_VERSIONS=(22.04 24.04 26.04)
 readonly ANSIBLE_PLAYBOOK_CANDIDATES=(
   ansible/playbook.yml
   ansible/playbook.yaml
@@ -21,6 +25,13 @@ DOTFILES_SOURCE_DIR=""
 SUDO_KEEPALIVE_PID=""
 CLONE_DESTINATION_CREATED=""
 CLONE_COMPLETED=0
+PLATFORM_ID=""
+PLATFORM_VERSION=""
+PLATFORM_PRETTY_NAME=""
+PLATFORM_ARCHITECTURE=""
+PLATFORM_KIND=""
+PLATFORM_IS_WSL=0
+PLATFORM_IS_WSL2=0
 
 warn() {
   echo "Warning: $*" >&2
@@ -71,12 +82,12 @@ confirm_continue() {
 
   prompt_read answer "${prompt} [y/N] "
   case "$answer" in
-    y | Y | yes | YES | Yes)
-      return 0
-      ;;
-    *)
-      abort
-      ;;
+  y | Y | yes | YES | Yes)
+    return 0
+    ;;
+  *)
+    abort
+    ;;
   esac
 }
 
@@ -91,43 +102,129 @@ initialize_sudo() {
   SUDO_KEEPALIVE_PID="$!"
 }
 
-is_wsl() {
-  grep -qiE "(microsoft|wsl)" /proc/version /proc/sys/kernel/osrelease 2>/dev/null
+value_in_array() {
+  local wanted="$1"
+  shift
+  local candidate
+
+  for candidate in "$@"; do
+    if [ "$candidate" = "$wanted" ]; then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
-check_wsl_environment() {
-  if is_wsl; then
-    return 0
+read_os_release() {
+  local os_release_file="$1"
+  local -a os_values
+
+  if [ ! -r "$os_release_file" ]; then
+    error "Cannot determine the OS because $os_release_file is not readable."
+    return 1
   fi
 
-  warn "This script is intended for WSL."
-  warn "Running it on native Linux is not guaranteed to work."
-  confirm_continue "Continue anyway?"
+  mapfile -t os_values < <(
+    set +u
+    # shellcheck disable=SC1090
+    . "$os_release_file"
+    printf '%s\n' "${ID:-}" "${VERSION_ID:-}" "${PRETTY_NAME:-unknown}"
+  )
+
+  PLATFORM_ID="${os_values[0]:-}"
+  PLATFORM_VERSION="${os_values[1]:-}"
+  PLATFORM_PRETTY_NAME="${os_values[2]:-unknown}"
 }
 
-check_supported_os() {
-  if [ ! -r /etc/os-release ]; then
-    error "Cannot determine the OS because /etc/os-release is not readable."
-    exit 1
-  fi
+detect_wsl_generation() {
+  local kernel_release_file="$1"
 
-  . /etc/os-release
+  PLATFORM_IS_WSL=0
+  PLATFORM_IS_WSL2=0
 
-  if [ "${ID:-}" = "debian" ]; then
+  if [ ! -r "$kernel_release_file" ]; then
     return 0
   fi
 
-  if command_exists apt-get; then
-    warn "This script is intended for Debian."
-    warn "Detected OS: ${PRETTY_NAME:-unknown}"
-    warn "Continuing as an apt-based environment, but full compatibility is not guaranteed."
-    confirm_continue "Continue anyway?"
-    return 0
+  if grep -qiE '(microsoft|wsl)' "$kernel_release_file" 2>/dev/null; then
+    PLATFORM_IS_WSL=1
   fi
 
-  error "This script is intended for Debian or other apt-based Linux systems."
-  error "Detected OS: ${PRETTY_NAME:-unknown}"
-  exit 1
+  if grep -qiE '(wsl2|microsoft-standard)' "$kernel_release_file" 2>/dev/null; then
+    PLATFORM_IS_WSL2=1
+  fi
+}
+
+detect_architecture() {
+  local architecture="${1:-}"
+
+  if [ -z "$architecture" ]; then
+    if ! command_exists dpkg; then
+      error "Cannot determine the package architecture because dpkg is unavailable."
+      return 1
+    fi
+    architecture="$(dpkg --print-architecture)"
+  fi
+
+  PLATFORM_ARCHITECTURE="$architecture"
+}
+
+detect_supported_platform() {
+  local os_release_file="${1:-/etc/os-release}"
+  local kernel_release_file="${2:-/proc/sys/kernel/osrelease}"
+  local architecture="${3:-}"
+
+  PLATFORM_KIND=""
+  read_os_release "$os_release_file" || return 1
+  detect_wsl_generation "$kernel_release_file"
+  detect_architecture "$architecture" || return 1
+
+  if [ "$PLATFORM_ARCHITECTURE" != "amd64" ]; then
+    error "Unsupported architecture: $PLATFORM_ARCHITECTURE (supported: amd64)."
+    return 1
+  fi
+
+  case "$PLATFORM_ID" in
+  debian)
+    if ! value_in_array "$PLATFORM_VERSION" "${SUPPORTED_DEBIAN_VERSIONS[@]}"; then
+      error "Unsupported Debian version: ${PLATFORM_VERSION:-unknown} (supported: ${SUPPORTED_DEBIAN_VERSIONS[*]})."
+      return 1
+    fi
+    if [ "$PLATFORM_IS_WSL" -eq 1 ]; then
+      error "Debian on WSL is not supported. Use Debian 12/13 on native Linux or a supported Ubuntu release on WSL 2."
+      return 1
+    fi
+    PLATFORM_KIND="debian-native"
+    ;;
+  ubuntu)
+    if ! value_in_array "$PLATFORM_VERSION" "${SUPPORTED_UBUNTU_VERSIONS[@]}"; then
+      error "Unsupported Ubuntu version: ${PLATFORM_VERSION:-unknown} (supported LTS: ${SUPPORTED_UBUNTU_VERSIONS[*]})."
+      return 1
+    fi
+    if [ "$PLATFORM_IS_WSL" -eq 1 ] && [ "$PLATFORM_IS_WSL2" -ne 1 ]; then
+      error "Ubuntu on WSL 1 is not supported. Convert the distribution to WSL 2 before running bootstrap."
+      return 1
+    fi
+    if [ "$PLATFORM_IS_WSL2" -eq 1 ]; then
+      PLATFORM_KIND="ubuntu-wsl2"
+    else
+      PLATFORM_KIND="ubuntu-native"
+    fi
+    ;;
+  *)
+    error "Unsupported OS: ${PLATFORM_PRETTY_NAME:-unknown}."
+    error "Supported environments are Debian 12/13 native and Ubuntu ${SUPPORTED_UBUNTU_VERSIONS[*]} native or WSL 2."
+    return 1
+    ;;
+  esac
+
+  if ! command_exists apt-get; then
+    error "apt-get is required on supported Debian and Ubuntu environments."
+    return 1
+  fi
+
+  echo "Detected supported environment: $PLATFORM_KIND ($PLATFORM_PRETTY_NAME, $PLATFORM_ARCHITECTURE)."
 }
 
 configure_github_git_protocol() {
@@ -169,19 +266,28 @@ EOF
 }
 
 configure_github_cli_browser() {
-  if command_exists xdg-open; then
-    export GH_BROWSER="${GH_BROWSER:-xdg-open}"
+  local windows_browser="$1"
+
+  if [ -n "${GH_BROWSER:-}" ]; then
+    return 0
+  fi
+
+  if [ "$PLATFORM_KIND" = "ubuntu-wsl2" ]; then
+    if [ -x "$windows_browser" ]; then
+      export GH_BROWSER="$windows_browser"
+      gh config set browser "$windows_browser"
+      return 0
+    fi
+    warn "Windows browser opener was not found at $windows_browser."
+  fi
+
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command_exists xdg-open; then
+    export GH_BROWSER="xdg-open"
     gh config set browser xdg-open
     return 0
   fi
 
-  if [ -x /mnt/c/Windows/explorer.exe ]; then
-    export GH_BROWSER="${GH_BROWSER:-/mnt/c/Windows/explorer.exe}"
-    gh config set browser /mnt/c/Windows/explorer.exe
-    return 0
-  fi
-
-  warn "No browser opener was found. GitHub CLI may not be able to open the Windows browser."
+  warn "No graphical browser opener was configured. Use the URL and device code printed by GitHub CLI."
 }
 
 install_chezmoi() {
@@ -312,19 +418,30 @@ reload_or_notice_tmux() {
 
 install_base_packages() {
   sudo apt-get update
+
+  if [ "$PLATFORM_ID" = "ubuntu" ]; then
+    sudo apt-get install -y "${UBUNTU_REPOSITORY_PACKAGES[@]}"
+    sudo add-apt-repository -y universe
+    sudo apt-get update
+  fi
+
   sudo apt-get install -y "${BASE_PACKAGES[@]}"
   echo "Base packages installed."
 }
 
-main() {
-  trap cleanup EXIT
+# Optional path/architecture arguments are used by tests to supply fixtures.
+# Production execution calls this function without arguments.
+# shellcheck disable=SC2120
+run_bootstrap() {
+  local os_release_file="${1:-/etc/os-release}"
+  local kernel_release_file="${2:-/proc/sys/kernel/osrelease}"
+  local architecture="${3:-}"
 
-  check_wsl_environment
-  check_supported_os
+  detect_supported_platform "$os_release_file" "$kernel_release_file" "$architecture" || return 1
   initialize_sudo
   install_base_packages
   install_chezmoi
-  configure_github_cli_browser
+  configure_github_cli_browser "$DEFAULT_WINDOWS_BROWSER"
   ensure_github_auth
   ensure_github_known_host
   clone_dotfiles_repository
@@ -333,6 +450,12 @@ main() {
   reload_or_notice_tmux
 }
 
-if (( ${#BASH_SOURCE[@]} == 0 )) || [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+main() {
+  trap cleanup EXIT
+  # shellcheck disable=SC2119
+  run_bootstrap
+}
+
+if ((${#BASH_SOURCE[@]} == 0)) || [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   main "$@"
 fi
