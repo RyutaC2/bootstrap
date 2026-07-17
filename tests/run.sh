@@ -207,35 +207,45 @@ test_browser_selection() {
   local fixture="$tmp_root/browser"
   local stub_dir="$fixture/bin"
   local log_file="$fixture/commands.log"
-  local explorer="$fixture/explorer.exe"
+  local windows_cmd="$fixture/cmd.exe"
+  local wsl_browser="$fixture/wsl-browser"
 
   create_command_stubs "$stub_dir"
   : >"$log_file"
-  : >"$explorer"
-  chmod +x "$explorer"
+  cat >"$windows_cmd" <<'EOF'
+#!/usr/bin/env bash
+printf 'cmd.exe' >>"$BOOTSTRAP_COMMAND_LOG"
+printf ' <%s>' "$@" >>"$BOOTSTRAP_COMMAND_LOG"
+printf '\n' >>"$BOOTSTRAP_COMMAND_LOG"
+EOF
+  chmod +x "$windows_cmd"
   PATH="$stub_dir:$original_path"
   BOOTSTRAP_COMMAND_LOG="$log_file"
   export PATH BOOTSTRAP_COMMAND_LOG
 
   unset GH_BROWSER DISPLAY WAYLAND_DISPLAY
   PLATFORM_KIND=ubuntu-wsl2
-  configure_github_cli_browser "$explorer"
-  assert_equal 'WSL uses Windows Explorer' "$explorer" "$GH_BROWSER"
-  assert_file_contains 'WSL persists Windows browser opener' "gh config set browser $explorer" "$log_file"
+  configure_github_cli_browser "$windows_cmd" "$wsl_browser"
+  assert_equal 'WSL uses the Windows browser wrapper' "$wsl_browser" "$GH_BROWSER"
+  assert_file_contains 'WSL persists the Windows browser wrapper' "gh config set browser $wsl_browser" "$log_file"
+
+  WSL_WINDOWS_CMD="$windows_cmd" "$wsl_browser" 'https://github.com/login/device'
+  assert_file_contains 'WSL browser wrapper uses cmd.exe start' \
+    'cmd.exe </c> <start> <> <https://github.com/login/device>' "$log_file"
 
   : >"$log_file"
   unset GH_BROWSER WAYLAND_DISPLAY
   DISPLAY=:0
   export DISPLAY
   PLATFORM_KIND=ubuntu-native
-  configure_github_cli_browser "$fixture/missing-explorer"
+  configure_github_cli_browser "$fixture/missing-cmd" "$wsl_browser"
   assert_equal 'graphical native Linux uses xdg-open' xdg-open "$GH_BROWSER"
   assert_file_contains 'native Linux persists xdg-open' 'gh config set browser xdg-open' "$log_file"
 
   : >"$log_file"
   unset GH_BROWSER DISPLAY WAYLAND_DISPLAY
   PLATFORM_KIND=debian-native
-  configure_github_cli_browser "$fixture/missing-explorer" >"$fixture/headless-output" 2>&1
+  configure_github_cli_browser "$fixture/missing-cmd" "$wsl_browser" >"$fixture/headless-output" 2>&1
   assert_equal 'headless Linux leaves GH_BROWSER unset' '' "${GH_BROWSER:-}"
   assert_file_not_contains 'headless Linux does not persist a browser' 'gh config set browser' "$log_file"
 

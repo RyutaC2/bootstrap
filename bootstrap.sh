@@ -4,7 +4,8 @@ set -euo pipefail
 readonly GITHUB_HOST="github.com"
 readonly DEFAULT_CHEZMOI_INSTALL_DIR="$HOME/.local/bin"
 readonly DEFAULT_DOTFILES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi"
-readonly DEFAULT_WINDOWS_BROWSER="/mnt/c/Windows/explorer.exe"
+readonly DEFAULT_WINDOWS_CMD="/mnt/c/Windows/System32/cmd.exe"
+readonly DEFAULT_WSL_BROWSER="$HOME/.local/bin/wsl-browser"
 readonly BASE_PACKAGES=(git curl gh ansible xdg-utils)
 readonly UBUNTU_REPOSITORY_PACKAGES=(software-properties-common)
 readonly SUPPORTED_DEBIAN_VERSIONS=(12 13)
@@ -265,20 +266,47 @@ github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+V
 EOF
 }
 
+install_wsl_browser_opener() {
+  local opener_path="$1"
+
+  mkdir -p "${opener_path%/*}"
+  cat >"$opener_path" <<'EOF'
+#!/bin/sh
+
+url=${1:-}
+windows_cmd=${WSL_WINDOWS_CMD:-/mnt/c/Windows/System32/cmd.exe}
+
+if [ -z "$url" ]; then
+  echo "Usage: wsl-browser URL" >&2
+  exit 2
+fi
+
+if [ ! -x "$windows_cmd" ]; then
+  echo "Windows command launcher was not found at $windows_cmd." >&2
+  exit 1
+fi
+
+exec "$windows_cmd" /c start "" "$url"
+EOF
+  chmod 755 "$opener_path"
+}
+
 configure_github_cli_browser() {
-  local windows_browser="$1"
+  local windows_cmd="$1"
+  local wsl_browser="${2:-$DEFAULT_WSL_BROWSER}"
 
   if [ -n "${GH_BROWSER:-}" ]; then
     return 0
   fi
 
   if [ "$PLATFORM_KIND" = "ubuntu-wsl2" ]; then
-    if [ -x "$windows_browser" ]; then
-      export GH_BROWSER="$windows_browser"
-      gh config set browser "$windows_browser"
+    if [ -x "$windows_cmd" ]; then
+      install_wsl_browser_opener "$wsl_browser"
+      export GH_BROWSER="$wsl_browser"
+      gh config set browser "$wsl_browser"
       return 0
     fi
-    warn "Windows browser opener was not found at $windows_browser."
+    warn "Windows command launcher was not found at $windows_cmd."
   fi
 
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command_exists xdg-open; then
@@ -441,7 +469,7 @@ run_bootstrap() {
   initialize_sudo
   install_base_packages
   install_chezmoi
-  configure_github_cli_browser "$DEFAULT_WINDOWS_BROWSER"
+  configure_github_cli_browser "$DEFAULT_WINDOWS_CMD" "$DEFAULT_WSL_BROWSER"
   ensure_github_auth
   ensure_github_known_host
   clone_dotfiles_repository

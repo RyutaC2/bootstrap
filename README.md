@@ -51,7 +51,7 @@ sudo apt-get update && sudo apt-get install -y curl && BOOTSTRAP_YES=1 DOTFILES_
 9. repository 内に Ansible playbook があれば実行
 10. 確認後に `chezmoi apply` を実行
 
-script 本体の序盤で `sudo -v` を実行し、APT に必要な sudo credential を用意します。実行中は sudo timestamp が切れないように keep-alive します。Ansible playbook は `--ask-become-pass` 付きで実行し、`become: true` の task に必要な sudo password は Ansible に直接入力します。
+script 本体の序盤で `sudo -v` を実行し、APT に必要な sudo credential を用意します。実行中は sudo timestamp が切れないように keep-alive します。Ansible playbook は `--ask-become-pass` 付きで実行し、`become: true` の task に必要な sudo password は Ansible に直接入力します。dotfiles 側の playbook は Ubuntu 26.04 に限り、`sudo-rs` の認証 prompt と Ansible の互換性を保つため `/usr/bin/sudo.ws` を使用します。
 
 SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準動作に任せ、script から自動入力しません。
 
@@ -59,7 +59,7 @@ SSH key の生成や passphrase 入力は GitHub CLI と OpenSSH の標準動作
 
 認証用 browser opener は実行環境に応じて選択します。
 
-- Ubuntu WSL 2 では `/mnt/c/Windows/explorer.exe` を優先します。
+- Ubuntu WSL 2 では `cmd.exe /c start` を呼ぶ `~/.local/bin/wsl-browser` を生成して使用します。Windows の既定 browser が認証ページを開きます。
 - GUI session の Debian/Ubuntu 実機では `xdg-open` を使用します。
 - `DISPLAY` と `WAYLAND_DISPLAY` がない headless 実機では opener を設定しません。
 - 実行前から `GH_BROWSER` が設定されている場合は、その設定を優先します。
