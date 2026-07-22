@@ -10,6 +10,9 @@ readonly BASE_PACKAGES=(git curl gh ansible xdg-utils)
 readonly UBUNTU_REPOSITORY_PACKAGES=(software-properties-common)
 readonly SUPPORTED_DEBIAN_VERSIONS=(12 13)
 readonly SUPPORTED_UBUNTU_VERSIONS=(22.04 24.04 26.04)
+# -vvv shows task/module execution details and command stdout/stderr without
+# enabling the noisier connection-level diagnostics provided by -vvvv.
+readonly ANSIBLE_VERBOSE_ARGS=(-vvv)
 readonly ANSIBLE_PLAYBOOK_CANDIDATES=(
   ansible/playbook.yml
   ansible/playbook.yaml
@@ -326,7 +329,7 @@ install_chezmoi() {
 
   echo "Installing chezmoi to $DEFAULT_CHEZMOI_INSTALL_DIR."
   mkdir -p "$DEFAULT_CHEZMOI_INSTALL_DIR"
-  sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$DEFAULT_CHEZMOI_INSTALL_DIR"
+  sh -c "$(curl -fL --progress-bar get.chezmoi.io)" -- -b "$DEFAULT_CHEZMOI_INSTALL_DIR"
   export PATH="$DEFAULT_CHEZMOI_INSTALL_DIR:$PATH"
   CHEZMOI_BIN="$DEFAULT_CHEZMOI_INSTALL_DIR/chezmoi"
 }
@@ -400,10 +403,11 @@ run_ansible_if_present() {
   if playbook="$(find_ansible_playbook "$source_dir")"; then
     echo "Running Ansible playbook: $playbook"
     echo "Ansible will ask for your sudo password if privilege escalation is required."
+    echo "Ansible verbose logging is enabled (-vvv)."
     if inventory="$(find_ansible_inventory "$source_dir")"; then
-      ansible-playbook --ask-become-pass -i "$inventory" "$playbook"
+      ansible-playbook "${ANSIBLE_VERBOSE_ARGS[@]}" --ask-become-pass -i "$inventory" "$playbook"
     else
-      ansible-playbook --ask-become-pass -i localhost, --connection local "$playbook"
+      ansible-playbook "${ANSIBLE_VERBOSE_ARGS[@]}" --ask-become-pass -i localhost, --connection local "$playbook"
     fi
     return 0
   fi

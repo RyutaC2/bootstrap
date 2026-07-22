@@ -169,6 +169,10 @@ EOF
 #!/usr/bin/env bash
 printf 'gh %s\n' "$*" >>"$BOOTSTRAP_COMMAND_LOG"
 EOF
+  cat >"$stub_dir/ansible-playbook" <<'EOF'
+#!/usr/bin/env bash
+printf 'ansible-playbook %s\n' "$*" >>"$BOOTSTRAP_COMMAND_LOG"
+EOF
   cat >"$stub_dir/xdg-open" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -198,6 +202,29 @@ test_package_installation() {
   install_base_packages >/dev/null
   assert_file_not_contains 'Debian does not enable Ubuntu Universe' 'add-apt-repository' "$log_file"
   assert_file_contains 'Debian installs common bootstrap packages' 'apt-get install -y git curl gh ansible xdg-utils' "$log_file"
+
+  PATH="$original_path"
+  export PATH
+}
+
+test_ansible_verbose_logging() {
+  local fixture="$tmp_root/ansible-verbose"
+  local stub_dir="$fixture/bin"
+  local log_file="$fixture/commands.log"
+  local source_dir="$fixture/source"
+
+  create_command_stubs "$stub_dir"
+  mkdir -p "$source_dir/ansible"
+  : >"$source_dir/ansible/inventory"
+  : >"$source_dir/ansible/playbook.yml"
+  : >"$log_file"
+  PATH="$stub_dir:$original_path"
+  BOOTSTRAP_COMMAND_LOG="$log_file"
+  export PATH BOOTSTRAP_COMMAND_LOG
+
+  run_ansible_if_present "$source_dir" >/dev/null
+  assert_file_contains 'bootstrap runs Ansible with detailed logging' \
+    'ansible-playbook -vvv --ask-become-pass' "$log_file"
 
   PATH="$original_path"
   export PATH
@@ -282,6 +309,7 @@ test_unsupported_stops_before_side_effects() {
 test_supported_platform_matrix
 test_unsupported_platform_matrix
 test_package_installation
+test_ansible_verbose_logging
 test_browser_selection
 test_unsupported_stops_before_side_effects
 
